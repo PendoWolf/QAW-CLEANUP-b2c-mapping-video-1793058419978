@@ -14,6 +14,16 @@ function loadTodos() {
   }
 }
 
+// Sends a Pendo Track Event if the Pendo agent is loaded. Tracking failures
+// must never break the app, so errors are swallowed.
+function trackEvent(name, properties) {
+  try {
+    window.pendo?.track?.(name, properties)
+  } catch {
+    // Ignore analytics errors
+  }
+}
+
 function App() {
   const [todos, setTodos] = useState(loadTodos)
   const [text, setText] = useState('')
@@ -34,14 +44,38 @@ function App() {
       ...current,
     ])
     setText('')
+
+    // Track Event: a task was actually created (covers Enter-key submits too)
+    trackEvent('task_created', {
+      text_length: value.length,
+      total_task_count: todos.length + 1,
+      remaining_count: todos.filter((todo) => !todo.done).length + 1,
+      active_filter: filter,
+    })
   }
 
   function toggleTodo(id) {
+    const target = todos.find((todo) => todo.id === id)
+
     setTodos((current) =>
       current.map((todo) =>
         todo.id === id ? { ...todo, done: !todo.done } : todo,
       ),
     )
+
+    if (!target) return
+
+    // Track Event: a task was completed (done: true) or reopened (done: false)
+    const done = !target.done
+    const remainingBefore = todos.filter((todo) => !todo.done).length
+    const remainingAfter = done ? remainingBefore - 1 : remainingBefore + 1
+    trackEvent('task_completion_toggled', {
+      done,
+      remaining_count: remainingAfter,
+      completed_count: todos.length - remainingAfter,
+      total_task_count: todos.length,
+      active_filter: filter,
+    })
   }
 
   function deleteTodo(id) {
@@ -49,7 +83,16 @@ function App() {
   }
 
   function clearCompleted() {
+    const remainingTodos = todos.filter((todo) => !todo.done)
+
     setTodos((current) => current.filter((todo) => !todo.done))
+
+    // Track Event: completed tasks were removed in bulk
+    trackEvent('completed_tasks_cleared', {
+      cleared_count: todos.length - remainingTodos.length,
+      remaining_count: remainingTodos.length,
+      active_filter: filter,
+    })
   }
 
   const visibleTodos = todos.filter((todo) => {
